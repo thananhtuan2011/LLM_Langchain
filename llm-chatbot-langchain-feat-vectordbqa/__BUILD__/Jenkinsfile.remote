@@ -1,0 +1,58 @@
+pipeline {
+    environment {
+        REGISTRY_HOST = "registry.jee.vn"
+        REGISTRY_PUBLISHER = "dps"
+        REGISTRY_CRED = "registry"
+        PROJECT_NAME = "chatbot"
+        DOMAIN = "jee.vn"
+        SUBDOMAIN = "chatbot"
+        STACK_NAME = "dpscore"
+
+        NODE_ENV = "production"
+        OPENAI_API_KEY="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"
+
+        PINECONE_API_KEY="bd18fd6f-91b1-450b-9be1-d23f89d2a448"
+        PINECONE_ENVIRONMENT="gcp-starter"
+        PINECONE_INDEX_NAME="dic"
+        service = ""
+    }
+    agent any
+    stages {
+        stage('Install Package') {
+            steps {
+                sh 'apt-get update'
+                sh 'apt-get install -y gettext-base'
+            }
+        }
+
+        stage('Clone repository') {
+            steps {
+                script {
+                    checkout scm
+                }
+            }
+        }
+        stage("Install kubectl"){
+            steps {
+                sh """
+                    curl -LO https://storage.googleapis.com/kubernetes-release/release/`curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt`/bin/linux/amd64/kubectl
+                    chmod +x ./kubectl
+                    mv ./kubectl /usr/local/bin/kubectl
+                    kubectl version --client
+                """
+            }
+        }
+
+        stage('Deploy to Cluster') {
+            steps {
+                script {
+                    docker.withRegistry("https://${REGISTRY_HOST}", REGISTRY_CRED) {
+                        dir("llm-chatbot-langchain-feat-vectordbqa/__BUILD__"){
+                            sh "envsubst < deploy.yaml | kubectl apply -f -"
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

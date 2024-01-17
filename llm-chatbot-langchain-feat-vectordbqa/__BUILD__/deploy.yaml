@@ -1,0 +1,113 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${PROJECT_NAME}
+  namespace: ${STACK_NAME}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ${PROJECT_NAME}
+  template:
+    metadata:
+      labels:
+        app: ${PROJECT_NAME}
+    spec:
+      imagePullSecrets:
+      - name: docker-registry-secret
+      containers:
+      - name: ${PROJECT_NAME} 
+        image: ${REGISTRY_HOST}/${REGISTRY_PUBLISHER}/${PROJECT_NAME}:latest
+        ports:
+        - containerPort: 3001
+        env:
+        - name: OPENAI_API_KEY
+          value: ${OPENAI_API_KEY}
+        - name: PINECONE_API_KEY
+          value: ${PINECONE_API_KEY}
+        - name: PINECONE_ENVIRONMENT
+          value: ${PINECONE_ENVIRONMENT}
+        - name: PINECONE_INDEX_NAME
+          value: ${PINECONE_INDEX_NAME}
+
+---
+
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: secure-${PROJECT_NAME}
+  namespace: ${STACK_NAME}
+spec:
+  secretName: secure-${PROJECT_NAME}-tls
+  issuerRef:
+    name: letsencrypt-production
+    kind: ClusterIssuer
+  commonName: ${SUBDOMAIN}.${DOMAIN}
+  dnsNames:
+  - ${SUBDOMAIN}.${DOMAIN}
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${PROJECT_NAME}-service
+  namespace: ${STACK_NAME}
+spec:
+  selector:
+    app: ${PROJECT_NAME}
+  ports:
+    - name: http
+      port: 3001
+      targetPort: 3001
+  type: ClusterIP
+
+---
+
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRoute
+metadata:
+  name: ${PROJECT_NAME}-ingress
+  namespace: ${STACK_NAME}
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`${SUBDOMAIN}.${DOMAIN}`)
+      kind: Rule
+      services:
+        - name: ${PROJECT_NAME}-service
+          port: 3001
+  tls:
+    secretName: secure-${PROJECT_NAME}-tls
+
+---
+
+apiVersion: traefik.containo.us/v1alpha1
+kind: Middleware
+metadata:
+  name: https-only
+  namespace: ${STACK_NAME}
+spec:
+  redirectScheme:
+    scheme: https
+
+---
+
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRoute
+metadata:
+  name: ${PROJECT_NAME}-ingress-http
+  namespace: ${STACK_NAME}
+spec:
+  entryPoints:
+    - web
+  routes:
+    - match: Host(`${SUBDOMAIN}.${DOMAIN}`)
+      middlewares:
+        - name: https-only
+      kind: Rule
+      services:
+        - name: ${PROJECT_NAME}-service
+          port: 3001
